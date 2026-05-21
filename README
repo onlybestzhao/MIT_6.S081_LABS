@@ -9,3 +9,7 @@
 - trampoline.S19行写了trampoline:trap.c sets stvec to point here,意思只要发生中断/异常这种都会到stvec寄存器，回看trap.c，会看到prepare_return里 w_stvec(trampoline_uservec);将stvec的虚拟地址设置成uservec的地址，这意味着用户态trap的时候，.S先跳到uservec
 
 - 以及p->trapframe->kernel_trap = (uint64)usertrap;，这样kernel方便操作地址，在trampoline.S的97行，#call usertrap() jalr t_0， 在经历一系列汇编操作后地址跳到t_0然后调用usertrap -> devintr() - > clockintr() 
+### LAB1-PINGPONG(PIPE)
+1. 用到了sys_pipe , write , read
+2. 最搞的点其实就是要去看sys_pipe究竟实现了个啥，给它一个数组，会在内核里面给你两个端口，fd[0]是读端口 ， fd[1]是写端口，通过pipe可以实现两个进程之间的通信实现
+3. 最后一定要注意user里面比如调write/read,里面的参数通过.S汇编和RISC_V调用约定传入a_0,.._5寄存器，然后内核通过argraw(int n)，n=1-5,去判断读哪个寄存器的值

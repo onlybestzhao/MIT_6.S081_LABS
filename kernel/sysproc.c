@@ -70,8 +70,8 @@ sys_pause(void)
   int n;
   uint ticks0;
 
-  argint(0, &n);
-  if(n < 0)
+  argint(0, &n); //n=获得a_n寄存器的值
+  if(n < 0) //只有寄存器没值，会返回-1才<0
     n = 0;
   acquire(&tickslock);
   ticks0 = ticks;

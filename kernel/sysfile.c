@@ -483,7 +483,7 @@ sys_pipe(void)
   struct proc *p = myproc();
 
   argaddr(0, &fdarray);
-  if(pipealloc(&rf, &wf) < 0)
+  if(pipealloc(&rf, &wf) < 0) //真尼玛阴间啊，fd[0]是读端口，fd[1]是写端口
     return -1;
   fd0 = -1;
   if((fd0 = fdalloc(rf)) < 0 || (fd1 = fdalloc(wf)) < 0){
@@ -500,6 +500,6 @@ sys_pipe(void)
     fileclose(rf);
     fileclose(wf);
     return -1;
-  }
+  }//copyout 将内核里寄存器的值赋值到管道内给的地址
   return 0;
 }

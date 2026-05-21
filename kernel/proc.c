@@ -551,14 +551,14 @@ sleep(void *chan, struct spinlock *lk)
   // (wakeup locks p->lock),
   // so it's okay to release lk.
 
-  acquire(&p->lock);  //DOC: sleeplock1
-  release(lk);
+  acquire(&p->lock);  //DOC: sleeplock1 获取当前proc的锁
+  release(lk);         //释放调用的锁
 
   // Go to sleep.
-  p->chan = chan;
+  p->chan = chan; // chan在sys_pause里是ticks，所以就是在等待ticks的变化
   p->state = SLEEPING;
 
-  sched();
+  sched(); //只有sleep状态可以切换进程
 
   // Tidy up.
   p->chan = 0;

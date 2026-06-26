@@ -147,6 +147,8 @@ UPROGS=\
 	$U/_dorphan\
 	$U/_sleep\
 	$U/_pingpong\
+	$U/_primes\
+	$U/_primes_n\
 	
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

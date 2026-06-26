@@ -80,25 +80,6 @@ if (pid ==0)  //子进程
 else  //父进程
 { 
    pipeline(array_35);
-    // for(int i=0;i<34;i++)
-    // {  
-    //     if (array_35[i]%array_35[0]==0&&array_35[i]!=2)
-    //     {
-    //        account++;
-    //         continue;
-    //     }
-    //     else
-    //     { 
-    //         count++;
-    //          write(fd[1],&array_35[i],sizeof(int));
-             
-            
-    //         if (count==1)
-    //         printf("prime %d\n",array_35[count+account-1]);
-           
-    //     }
-      
-    // }
      write(pd[1],&count,sizeof(int));
     close(pd[1]);
       close(fd[1]);

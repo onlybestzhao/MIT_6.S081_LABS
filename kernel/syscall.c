@@ -53,6 +53,7 @@ argraw(int n)
 }
 
 // Fetch the nth 32-bit system call argument.
+//获取第n个参数(0,1...)的值
 void
 argint(int n, int *ip)
 {

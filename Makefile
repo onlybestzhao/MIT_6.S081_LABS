@@ -150,6 +150,7 @@ UPROGS=\
 	$U/_primes\
 	$U/_primes_n\
 	$U/_realprimes\
+	$U/_find\
 	
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

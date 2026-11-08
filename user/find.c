@@ -12,7 +12,7 @@ const char *argv;
 int i; //从父层开始遍历
 void find ( char *path,char *target)
 {int fd;
- char buf[512];
+static char buf[512];
 char *p;
 struct dirent de;
   struct stat st;

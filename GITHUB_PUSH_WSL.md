@@ -6,7 +6,7 @@
 
 ```python
 ADD_PATHS = [
-    "user/find.c",
+    "地址",
 ]
 COMMIT_MESSAGE = "描述本次修改"
 PUSH_REMOTE = "origin"

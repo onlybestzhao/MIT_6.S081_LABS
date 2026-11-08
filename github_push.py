@@ -10,11 +10,11 @@ import sys
 
 # Edit these values before each run.
 ADD_PATHS = [
-    "GITHUB_PUSH_WSL.md","github_push.py"
+    "./"
 ]
-COMMIT_MESSAGE = "Add GITHUB_PUSH_WSL.md and github_push.py"
+COMMIT_MESSAGE = "CREATE: Add all files for lab2 submission"
 PUSH_REMOTE = "origin"
-PUSH_BRANCH = "lab1"
+PUSH_BRANCH = "lab2"
 
 REPOSITORY = Path(__file__).resolve().parent
 GITHUB_HOST = "github.com"

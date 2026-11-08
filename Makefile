@@ -151,9 +151,10 @@ UPROGS=\
 	$U/_primes_n\
 	$U/_realprimes\
 	$U/_find\
+	$U/_xargs\
 	
-fs.img: mkfs/mkfs README $(UPROGS)
-	mkfs/mkfs fs.img README $(UPROGS)
+fs.img: mkfs/mkfs README xargstest.sh $(UPROGS)
+	mkfs/mkfs fs.img README xargstest.sh $(UPROGS)
 
 -include kernel/*.d user/*.d
 

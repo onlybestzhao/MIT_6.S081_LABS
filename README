@@ -31,4 +31,4 @@
 3. 参数数组传给exec时最后必须放置`0`，表示参数结束；命令本身放在`new_args[0]`，从标准输入读取的路径追加到后面。
 4. fork之后只有子进程执行exec，父进程执行wait后必须继续读取下一行，不能在等待后直接exit，否则xargs只能执行一次命令。
 5. 本次测试通过`find . b | xargs grep hello`验证了find输出的文件路径能够被xargs正确拼接成`grep hello ./b`并执行；同时将自定义的`xargstest.sh`加入Makefile和文件系统镜像后，可以使用`sh < xargstest.sh`进行测试。
-6. 可以通过查看buf[i]的
+6. 可以通过查看buf[i]的十进制值，了解不同命令下的./n是否是被分开还是按一起计算，这个是shell层的问题，后期有计划我可以尝试修改一下

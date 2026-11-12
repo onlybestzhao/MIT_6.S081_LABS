@@ -1,0 +1,12 @@
+
+## LAB2
+### LAB2-SYSCALL
+1. 本实验实现了`trace`系统调用。用户通过mask指定要追踪的系统调用，例如`SYS_read`是5，`1 << SYS_read`就是32，所以可以使用`trace 32 grep hello README`只追踪`read`。
+2. `user/trace.c`是用户态启动器，先读取命令行参数并调用`trace(mask)`，然后使用`exec`启动目标程序。它不是直接实现所有追踪逻辑，真正的逻辑在内核中完成。
+3. 系统调用流程是：用户态stub把系统调用编号放入`a7`，把第一个参数放入`a0`，然后执行RISC-V的`ecall`指令；内核经过`trampoline.S`、`usertrap()`进入`syscall()`，再根据`a7`分发到`sys_trace()`。
+4. `sys_trace()`通过`argint(0, &mask)`读取第0个系统调用参数，也就是`a0`寄存器的值，然后保存到当前进程的`tracemask`中。`sys_trace()`只负责设置规则，不负责处理后续所有系统调用。
+5. 所有系统调用都会经过`syscall()`。具体系统调用执行完成后，内核通过`p->tracemask & (1 << num)`判断当前调用是否需要输出，并使用系统调用名称数组打印进程ID、名称和返回值。
+6. `tracemask`是进程状态，所以要放在`struct proc`中。`exec`只替换用户空间程序，不会替换当前进程，因此`trace`设置的mask可以被目标程序继续使用。
+7. `fork`会创建新的`struct proc`，所以必须添加`np->tracemask = p->tracemask`，让子进程和后代进程继承追踪规则。使用`trace 2 usertests forkforkfork`可以验证多个进程的`fork`输出。
+8. 本次实验遇到的问题包括：`SYS_TRACE`和`SYS_trace`大小写不一致、系统调用表缺少`extern uint64 sys_trace(void)`声明，以及GCC 13把shell中正常的`runcmd`递归当成错误。最后通过统一命名和在Makefile中加入`-Wno-infinite-recursion`解决。
+

@@ -454,3 +454,370 @@ fork + syscall：继承并执行追踪规则
 ```
 
 这次实验表面上是在增加一个系统调用，实际上练习了用户态和内核态之间的参数传递、trapframe、系统调用分发表，以及进程状态在 `fork` 后的继承。
+
+---
+
+# MIT 6.S081学习日记第7篇：实现 xv6 的系统信息查询
+
+> 本文记录 MIT 6.S081 Lab 2 中 `sysinfo` 系统调用的实现过程，重点整理用户地址参数、`copyout()`、空闲物理页链表、进程表统计以及内核锁的作用。
+
+## 一、实验目标
+
+`sysinfo` 用于查询 xv6 当前的系统状态，并返回：
+
+```c
+struct sysinfo {
+  uint64 freemem;   // amount of free memory (bytes)
+  uint64 nproc;     // number of process
+};
+```
+
+其中：
+
+- `freemem`：当前可以由 `kalloc()` 分配的空闲物理内存，单位是字节；
+- `nproc`：当前进程表中状态不是 `UNUSED` 的进程数量。
+
+用户程序的调用形式是：
+
+```c
+struct sysinfo info;
+sysinfo(&info);
+```
+
+内核不能直接把用户指针当作内核地址使用，而是先在内核中填充结构体，再通过 `copyout()` 复制到用户地址空间。
+
+## 二、添加用户态接口
+
+### 1. 声明结构体和函数
+
+在 `user/user.h` 中声明：
+
+```c
+struct sysinfo;
+int sysinfo(struct sysinfo *);
+```
+
+在 `user/usys.pl` 中添加：
+
+```perl
+entry("sysinfo");
+```
+
+脚本会生成用户态系统调用 stub。用户调用 `sysinfo(&info)` 时，stub 会把系统调用编号放入 `a7`，把 `&info` 放入 `a0`，然后执行 `ecall`。
+
+### 2. 分配系统调用编号
+
+在 `kernel/syscall.h` 中添加：
+
+```c
+#define SYS_sysinfo 23
+```
+
+同时在 `kernel/syscall.c` 中声明并加入系统调用表：
+
+```c
+extern uint64 sys_sysinfo(void);
+
+[SYS_sysinfo] sys_sysinfo,
+```
+
+还要在 Makefile 中加入：
+
+```make
+$U/_sysinfotest\
+```
+
+这样测试程序才会被编译并打包到 xv6 文件系统中。
+
+## 三、`sys_sysinfo()` 的参数和 `copyout()`
+
+`sysinfo` 的参数是用户空间中 `struct sysinfo` 的地址，不是文件描述符，因此应该使用：
+
+```c
+uint64 addr;
+
+if(argaddr(0, &addr) < 0)
+  return -1;
+```
+
+内核中需要创建一个实际的结构体变量：
+
+```c
+struct sysinfo st;
+```
+
+然后填充字段：
+
+```c
+st.nproc = nproc();
+st.freemem = freemem();
+```
+
+最后复制到用户地址：
+
+```c
+if(copyout(p->pagetable, addr, (char *)&st, sizeof(st)) < 0)
+  return -1;
+```
+
+这里不能写成：
+
+```c
+struct sysinfo *st;
+st->nproc = nproc();
+```
+
+因为这只声明了一个未初始化的指针，没有创建实际的 `struct sysinfo` 对象。直接访问 `st->nproc` 会向随机地址写数据，可能触发 `kerneltrap`。
+
+也不能把指针本身复制出去；必须复制真正的结构体对象，因此使用：
+
+```c
+(char *)&st, sizeof(st)
+```
+
+## 四、统计空闲物理内存
+
+### 1. `freelist` 保存了什么
+
+`kernel/kalloc.c` 中的 `kmem.freelist` 是空闲物理页组成的链表。初始化分配器时：
+
+```c
+freerange(end, (void*)PHYSTOP);
+```
+
+`freerange()` 每次移动 `PGSIZE`，并调用 `kfree()` 把这一页加入链表：
+
+```c
+for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  kfree(p);
+```
+
+因此，链表中的每一个 `struct run` 节点都代表一个空闲物理页：
+
+```text
+freelist
+   |
+   v
+[空闲页] -> [空闲页] -> [空闲页] -> 0
+```
+
+`kalloc()` 从链表头部取走一个节点，表示分配一页；`kfree()` 把释放的页重新放回链表。
+
+### 2. 为什么要乘以 `PGSIZE`
+
+遍历链表得到的是空闲页数量，而 `sysinfo.freemem` 要求返回字节数：
+
+```text
+空闲内存字节数 = 空闲页数量 × 每页字节数
+```
+
+RISC-V xv6 中：
+
+```c
+PGSIZE = 4096
+```
+
+所以如果有 `number` 个空闲页，应该返回：
+
+```c
+number * PGSIZE
+```
+
+这里统计的是所有可由 `kalloc()` 分配的空闲物理页，不只是页表页。这些页还可能被用于用户内存、内核栈、trapframe 和 pipe 缓冲区。
+
+### 3. 为什么需要 `kmem.lock`
+
+`kmem.freelist` 会被多个 CPU 同时修改：
+
+```text
+kalloc()：从链表取出页面
+kfree()：把页面放回链表
+freemem()：遍历链表统计页面
+```
+
+如果 `freemem()` 遍历时不加锁，另一个 CPU 可能同时修改 `freelist` 或某个 `run->next`，导致统计结果不稳定，甚至访问无效链表节点。
+
+因此遍历期间要持有：
+
+```c
+acquire(&kmem.lock);
+```
+
+遍历完成后再：
+
+```c
+release(&kmem.lock);
+```
+
+锁保护的是空闲页链表结构，不是说所有物理内存内容都必须由这个锁保护。
+
+## 五、统计进程数量
+
+进程表定义为：
+
+```c
+struct proc proc[NPROC];
+```
+
+下面的写法会遍历整个数组：
+
+```c
+struct proc *p;
+
+for(p = proc; p < &proc[NPROC]; p++) {
+  ...
+}
+```
+
+其中：
+
+- `proc` 等价于 `&proc[0]`；
+- `p++` 会移动到下一个 `struct proc`；
+- `&proc[NPROC]` 是数组尾后地址，只用于比较，不能解引用。
+
+`nproc()` 应统计：
+
+```c
+if(p->state != UNUSED)
+  count++;
+```
+
+不能统计 `p->state == UNUSED`，因为那是在统计空闲进程表项。
+
+每个进程都有自己的锁，所以锁的使用应当和当前循环项配对：
+
+```c
+for(p = proc; p < &proc[NPROC]; p++) {
+  acquire(&p->lock);
+
+  if(p->state != UNUSED)
+    count++;
+
+  release(&p->lock);
+}
+```
+
+不能把 `release(&p->lock)` 放到循环外。循环体执行完后，`for` 的 `p++` 会让 `p` 变成 `&proc[NPROC]`；此时它已经不是最后一个进程。另外，前面每轮获取的锁也没有释放，可能导致死锁或 `panic: release`。
+
+## 六、`.` 和 `->` 的区别
+
+两者都是访问结构体成员，但左侧类型不同：
+
+```c
+struct sysinfo st;
+st.nproc = 1;          // st 是结构体变量，使用 .
+
+struct proc *p;
+p->state = UNUSED;     // p 是结构体指针，使用 ->
+```
+
+指针形式：
+
+```c
+p->state
+```
+
+等价于：
+
+```c
+(*p).state
+```
+
+例如：
+
+```c
+kmem.freelist
+```
+
+中 `kmem` 是结构体变量，所以使用 `.`；而：
+
+```c
+r->next
+```
+
+中 `r` 是 `struct run *`，所以使用 `->`。
+
+## 七、测试过程
+
+运行：
+
+```sh
+sysinfotest
+```
+
+测试程序主要验证以下内容：
+
+### 1. 正常调用和非法地址
+
+```c
+sysinfo(&info);
+sysinfo((struct sysinfo *)0xeaeb0b5b00002f5e);
+```
+
+非法用户地址必须让系统调用返回 `-1`，不能让内核崩溃。
+
+### 2. 空闲内存统计
+
+测试先通过连续的 `sbrk(PGSIZE)` 耗尽可用物理页，然后检查：
+
+```text
+freemem == 0
+```
+
+之后释放内存，检查空闲字节数恢复；再次分配一页后，`freemem` 应减少 `PGSIZE`。
+
+### 3. 进程数量统计
+
+测试记录 `fork()` 前的进程数量。子进程执行 `sysinfo` 时，数量应该增加 1；子进程退出并被父进程回收后，数量应该恢复。
+
+成功时会输出：
+
+```text
+sysinfotest: OK
+```
+
+## 八、遇到的问题
+
+### 1. 把 `argfd()` 用在 `sysinfo()` 中
+
+`argfd()` 用于读取文件描述符参数，例如 `fstat(fd, &st)`。`sysinfo()` 只有一个用户结构体地址参数，所以应该使用 `argaddr()`。
+
+### 2. 把未初始化指针当成结构体使用
+
+```c
+struct sysinfo *st;
+st->nproc = nproc();
+```
+
+这不是创建结构体，而是创建一个没有目标地址的指针。应该使用结构体变量：
+
+```c
+struct sysinfo st;
+```
+
+### 3. 锁没有一一配对
+
+`acquire()` 和 `release()` 必须针对同一个锁成对出现。遍历进程表时，每次读取一个 `p->state` 后就释放当前 `p->lock`；遍历空闲页链表时，则在整个链表遍历期间持有 `kmem.lock`。
+
+## 九、总结
+
+`sysinfo` 的完整流程可以概括为：
+
+```text
+用户程序准备 struct sysinfo
+→ 用户态 stub 传入结构体地址
+→ sys_sysinfo() 使用 argaddr() 读取地址
+→ freemem() 统计空闲物理页
+→ nproc() 统计有效进程
+→ copyout() 把内核结构体复制到用户空间
+```
+
+这次实验最重要的几个概念是：
+
+```text
+freelist 中的一个节点代表一个空闲物理页
+freemem 返回页数 × PGSIZE 得到的字节数
+nproc 统计 state != UNUSED 的进程
+acquire 和 release 必须严格配对
+copyout 负责把内核数据安全复制到用户地址空间
+```

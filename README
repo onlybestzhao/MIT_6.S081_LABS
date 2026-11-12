@@ -1,6 +1,6 @@
 
 ## LAB2
-### LAB2-SYSCALL
+### LAB2-SYSCALL-TRACE
 1. 本实验实现了`trace`系统调用。用户通过mask指定要追踪的系统调用，例如`SYS_read`是5，`1 << SYS_read`就是32，所以可以使用`trace 32 grep hello README`只追踪`read`。
 2. `user/trace.c`是用户态启动器，先读取命令行参数并调用`trace(mask)`，然后使用`exec`启动目标程序。它不是直接实现所有追踪逻辑，真正的逻辑在内核中完成。
 3. 系统调用流程是：用户态stub把系统调用编号放入`a7`，把第一个参数放入`a0`，然后执行RISC-V的`ecall`指令；内核经过`trampoline.S`、`usertrap()`进入`syscall()`，再根据`a7`分发到`sys_trace()`。
@@ -9,4 +9,11 @@
 6. `tracemask`是进程状态，所以要放在`struct proc`中。`exec`只替换用户空间程序，不会替换当前进程，因此`trace`设置的mask可以被目标程序继续使用。
 7. `fork`会创建新的`struct proc`，所以必须添加`np->tracemask = p->tracemask`，让子进程和后代进程继承追踪规则。使用`trace 2 usertests forkforkfork`可以验证多个进程的`fork`输出。
 8. 本次实验遇到的问题包括：`SYS_TRACE`和`SYS_trace`大小写不一致、系统调用表缺少`extern uint64 sys_trace(void)`声明，以及GCC 13把shell中正常的`runcmd`递归当成错误。最后通过统一命名和在Makefile中加入`-Wno-infinite-recursion`解决。
+### LAB2-SYSINFO
+9. 本实验还实现了`sysinfo`系统调用，用于向用户返回当前空闲物理内存`freemem`和正在使用的进程数`nproc`。用户传入的是`struct sysinfo`的地址，内核填充临时结构体后，再通过`copyout()`复制到用户地址空间。
+10. `sys_sysinfo()`使用`argaddr(0, &addr)`读取用户传入的结构体地址，不能使用`argfd()`；`struct sysinfo st`是内核中的实际结构体变量，复制时必须传入`(char *)&st`和`sizeof(st)`，而不是未初始化的结构体指针。
+11. `freemem()`在`kernel/kalloc.c`中遍历`kmem.freelist`。链表中的每个`struct run`代表一个空闲物理页，因此统计节点数后要乘以`PGSIZE`，把空闲页数量转换成字节数。`kmem.lock`保证遍历期间分配器不会同时修改空闲页链表。
+12. `nproc()`在`kernel/proc.c`中遍历`proc[NPROC]`，对每个进程获取对应的`p->lock`，判断`p->state != UNUSED`后立即释放该锁。每次`acquire()`都必须和同一个进程的`release()`配对，不能把释放操作统一放到循环外。
+13. `.`和`->`的区别取决于左侧对象的类型：结构体变量使用`.`，结构体指针使用`->`。例如`st.nproc`中的`st`是结构体变量，而`p->state`中的`p`是`struct proc *`。
+14. `sysinfotest`会验证非法用户地址、耗尽和恢复空闲内存、分配一页后空闲内存减少`PGSIZE`，以及`fork`前后进程数的变化。运行`sysinfotest`并看到`sysinfotest: OK`，说明`sysinfo`的主要功能正确。
 
